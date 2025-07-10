@@ -3,14 +3,14 @@ use lmdb_sys::{mdb_set_compare, MDB_val, MDB_LAST};
 use libc::{c_int, memcmp};
 use super::env::Env;
 
-static KEY_PRODUCER: &'static [u8] = "producer_head".as_bytes();
+pub static KEY_PRODUCER: &'static [u8] = b"producer_head";
 
-fn slice_to_u64(slice: &[u8]) -> Result<u64, Error> {
+pub fn slice_to_u64(slice: &[u8]) -> Result<u64, Error> {
     let arr: [u8; 8] = slice.try_into().map_err(|_| Error::Corrupted)?;
     Ok(u64::from_ne_bytes(arr))
 }
 
-fn u64_to_bytes(v: u64) -> [u8; 8] {
+pub fn u64_to_bytes(v: u64) -> [u8; 8] {
     v.to_ne_bytes()
 }
 
@@ -19,15 +19,7 @@ pub struct Topic<'env> {
     db: Database,
 }
 
-extern "C" fn mdb_int_cmp_u32(a: *const MDB_val, b: *const MDB_val) -> c_int {
-    unsafe {
-        let a_val = *( (*a).mv_data as *const u32 );
-        let b_val = *( (*b).mv_data as *const u32 );
-        a_val.cmp(&b_val) as c_int  // reverse for DESC
-    }
-}
-
-extern "C" fn mdb_int_cmp_u64(a: *const MDB_val, b: *const MDB_val) -> c_int {
+pub extern "C" fn mdb_int_cmp_u64(a: *const MDB_val, b: *const MDB_val) -> c_int {
     unsafe {
         let a_val = *( (*a).mv_data as *const u64 );
         let b_val = *( (*b).mv_data as *const u64 );
@@ -50,7 +42,6 @@ extern "C" fn desc_cmp(a: *const MDB_val, b: *const MDB_val) -> c_int {
         }
 
         match a_size {
-            s if s == size_of::<u32>() => mdb_int_cmp_u32(a, b),
             s if s == size_of::<u64>() => mdb_int_cmp_u64(a, b),
             _ => memcmp((*a).mv_data, (*b).mv_data, a_size)
         }
