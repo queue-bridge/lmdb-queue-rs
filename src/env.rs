@@ -35,6 +35,8 @@ fn test_env_new() -> Result<(), Error> {
     let topic = env.topic("bar")?;
     let head = topic.get_producer_head()?;
     assert_eq!(head, 0);
+    let head_file = topic.get_producer_head_file()?;
+    assert_eq!(head_file, 0);
 
     Ok(())
 }

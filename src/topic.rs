@@ -1,5 +1,5 @@
-use lmdb::{Database, Error, DatabaseFlags, Transaction, WriteFlags};
-use lmdb_sys::{MDB_val, mdb_set_compare};
+use lmdb::{Cursor, Database, DatabaseFlags, Error, Transaction, WriteFlags};
+use lmdb_sys::{mdb_set_compare, MDB_val, MDB_LAST};
 use libc::{c_int, memcmp};
 use super::env::Env;
 
@@ -65,13 +65,24 @@ impl<'env> Topic<'env> {
             mdb_set_compare(txn.txn(), db.dbi(), desc_cmp as *mut _);
         }
 
-        if let Ok(_) = txn.put(db, &KEY_PRODUCER, &u64_to_bytes(0), WriteFlags::NO_OVERWRITE) {
-
+        let zero = &u64_to_bytes(0);
+        if let Ok(_) = txn.put(db, &KEY_PRODUCER, zero, WriteFlags::NO_OVERWRITE) {
+            txn.put(db, zero, zero, WriteFlags::NO_OVERWRITE)?;
         }
 
         txn.commit()?;
 
         Ok(Topic { env, db })
+    }
+
+    pub fn get_producer_head_file(&self) -> Result<u64, Error> {
+        let txn = self.env.transaction_ro()?;
+        let cur = txn.open_ro_cursor(self.db)?;
+        if let (Some(key), _) = cur.get(None, None, MDB_LAST)? {
+            slice_to_u64(key)
+        } else {
+            Err(Error::NotFound)
+        }
     }
 
     pub fn get_producer_head(&self) -> Result<u64, Error> {
