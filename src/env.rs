@@ -4,6 +4,7 @@ use libc::{c_uint, size_t};
 
 pub struct Env {
     lmdb_env: lmdb::Environment,
+    pub root: String,
 }
 
 impl Env {
@@ -13,7 +14,7 @@ impl Env {
             .set_max_dbs(max_topics.unwrap_or(256))
             .set_flags(EnvironmentFlags::NO_SYNC | EnvironmentFlags::NO_SUB_DIR)
             .open(root.as_ref())
-            .map(|lmdb_env| Env { lmdb_env })
+            .map(|lmdb_env| Env { lmdb_env, root: root.as_ref().to_str().unwrap().to_string() })
     }
 
     pub fn topic(&self, name: &str) -> Result<super::topic::Topic, Error> {
