@@ -30,12 +30,11 @@ impl Env {
 }
 
 #[test]
-fn test_env_new() {
-    let env = Env::new("/tmp/foo", None, None);
-    assert!(env.is_ok(), "Expected Ok, got Err({:?})", env.err());
+fn test_env_new() -> Result<(), Error> {
+    let env = Env::new("/tmp/foo", None, None)?;
+    let topic = env.topic("bar")?;
+    let head = topic.get_producer_head()?;
+    assert_eq!(head, 0);
 
-    if let Ok(env) = env {
-        let topic = env.topic("bar");
-        assert!(topic.is_ok(), "Expected Ok, got Err({:?})", topic.err());
-    }
+    Ok(())
 }
