@@ -22,10 +22,7 @@ impl Reader {
 
     pub fn read(&mut self) -> Result<Item> {
         let mut head = vec![0; 4 + 8];
-        let head_len = self.fd.read(&mut head)?;
-        if head_len != head.len() {
-            return Err(anyhow!("File corrupted."));
-        }
+        self.fd.read_exact(&mut head)?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
