@@ -1,8 +1,10 @@
 use anyhow::{Result, anyhow};
-use std::{fs::{File, OpenOptions}, io::Read, time::{SystemTime, UNIX_EPOCH}};
+use std::{fs::{File, OpenOptions}, io::{self, Read}, time::{SystemTime, UNIX_EPOCH}};
 
 struct Reader {
     fd: File,
+    prefix: String,
+    file_num: u64,
 }
 
 pub struct Item {
@@ -12,12 +14,23 @@ pub struct Item {
 
 impl Reader {
     pub fn new(root: &str, topic_name: &str, file_num: u64) -> Result<Self> {
-        let path = format!("{}-{}-{:016x}", root, topic_name, file_num);
+        let prefix = format!("{}-{}", root, topic_name);
+        let path = format!("{}-{:016x}", prefix, file_num);
         let fd = OpenOptions::new()
             .read(true)
             .open(path)?;
 
-        Ok(Self { fd })
+        Ok(Self { fd, prefix, file_num })
+    }
+
+    pub fn rotate(&mut self) -> Result<()> {
+        self.file_num = self.file_num + 1;
+        let path = format!("{}-{:016x}", self.prefix, self.file_num);
+        self.fd = OpenOptions::new()
+            .read(true)
+            .open(path.clone())?;
+
+        Ok(())
     }
 
     pub fn read(&mut self) -> Result<Item> {
@@ -44,20 +57,26 @@ impl Reader {
 
 #[test]
 fn test_reader() -> Result<()> {
-    let mut reader = Reader::new("/tmp/foo", "test", 0)?;
+    let mut reader = Reader::new("/tmp/foo", "bar", 0)?;
 
     let mut total = 0;
+
     loop {
-        if let Ok(item) = reader.read() {
-            total = total + 1;
-            if total % (1024 * 1024) == 0 {
-                println!("Read {} messages, ts: {}, data: {}.", total, item.ts, String::from_utf8(item.data)?);
+        match reader.read() {
+            Ok(item) => {
+                total = total + 1;
+                if total % (1024 * 1024) == 0 {
+                    println!("Read {} messages, ts: {}, data: {}.", total, item.ts, String::from_utf8(item.data)?);
+                }
             }
-        } else {
-            break;
+            Err(e) => {
+                println!("Read {} messages.", total);
+                if let Err(_) = reader.rotate() {
+                    break;
+                }
+            }
         }
     }
 
-    println!("Read {} messages.", total);
     Ok(())
 }

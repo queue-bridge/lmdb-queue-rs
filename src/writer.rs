@@ -3,18 +3,34 @@ use std::{fs::{File, OpenOptions}, io::Write, time::{SystemTime, UNIX_EPOCH}};
 
 struct Writer {
     fd: File,
+    prefix: String,
+    file_num: u64,
 }
 
 impl Writer {
     pub fn new(root: &str, topic_name: &str, file_num: u64) -> Result<Self> {
-        let path = format!("{}-{}-{:016x}", root, topic_name, file_num);
+        let prefix = format!("{}-{}", root, topic_name);
+        let path = format!("{}-{:016x}", prefix, file_num);
+
         let fd = OpenOptions::new()
             .write(true)
             .create(true)
             .append(true)
             .open(path)?;
 
-        Ok(Self { fd })
+        Ok(Self { fd, prefix, file_num })
+    }
+
+    pub fn rotate(&mut self) -> Result<()> {
+        self.file_num = self.file_num + 1;
+        let path = format!("{}-{:016x}", self.prefix, self.file_num);
+        self.fd = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .append(true)
+            .open(path)?;
+
+        Ok(())
     }
 
     fn append(&mut self, message: &[u8]) -> Result<()> {
@@ -49,7 +65,7 @@ impl Writer {
 
 #[test]
 fn test_put_batch() -> Result<()> {
-    let mut writer = Writer::new("/tmp/foo", "test", 0)?;
+    let mut writer = Writer::new("/tmp/foo", "bar", 0)?;
 
     for i in 0..1024*256 {
         let messages: Vec<Vec<u8>> = (0..10)
@@ -57,6 +73,9 @@ fn test_put_batch() -> Result<()> {
             .collect();
 
         let batch: Vec<&[u8]> = messages.iter().map(|v| v.as_slice()).collect();
+        if i == 1024 * 128 {
+            writer.rotate()?;
+        }
         writer.put_batch(&batch)?;
     }
 
