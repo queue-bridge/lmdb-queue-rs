@@ -46,13 +46,14 @@ impl<'env> Producer<'env> {
     where B: AsRef<[&'a [u8]]>
     {
         let mut txn = self.env.transaction_rw()?;
-        let (tail_file, count) = Producer::get_tail(self.db, &txn)?;
-        let size = self.writer.put_batch(messages)?;
-        txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(count + messages.as_ref().len() as u64), WriteFlags::empty())?;
-        if size > 64 * 1024 * 1024 {
+        let (mut tail_file, count) = Producer::get_tail(self.db, &txn)?;
+        if self.writer.file_size()? > 64 * 1024 * 1024 {
             self.writer.rotate()?;
-            txn.put(self.db, &u64_to_bytes(tail_file + 1), &u64_to_bytes(0), WriteFlags::empty())?;
+            tail_file += 1;
+            txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(0), WriteFlags::empty())?;
         }
+        self.writer.put_batch(messages)?;
+        txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(count + messages.as_ref().len() as u64), WriteFlags::empty())?;
         txn.commit()?;
         Ok(())
     }

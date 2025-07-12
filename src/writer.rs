@@ -48,12 +48,16 @@ impl Writer {
         Ok(())
     }
 
-    pub fn put_batch<'a, B>(&mut self, messages: &'a B) -> Result<u64>
+    pub fn put_batch<'a, B>(&mut self, messages: &'a B) -> Result<()>
     where B: AsRef<[&'a [u8]]>
     {
         for message in messages.as_ref() {
             self.append(message)?;
         }
+        Ok(())
+    }
+
+    pub fn file_size(&self) -> Result<u64> {
         Ok(self.fd.metadata()?.len())
     }
 }
