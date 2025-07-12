@@ -1,4 +1,4 @@
-mod producer;
+mod writer;
 mod reader;
 
 pub mod env;

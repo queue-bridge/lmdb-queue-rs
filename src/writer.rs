@@ -1,11 +1,11 @@
 use anyhow::Result;
 use std::{fs::{File, OpenOptions}, io::Write, time::{SystemTime, UNIX_EPOCH}};
 
-struct Producer {
+struct Writer {
     fd: File,
 }
 
-impl Producer {
+impl Writer {
     pub fn new(root: &str, topic_name: &str, file_num: u64) -> Result<Self> {
         let path = format!("{}-{}-{:016x}", root, topic_name, file_num);
         let fd = OpenOptions::new()
@@ -49,7 +49,7 @@ impl Producer {
 
 #[test]
 fn test_put_batch() -> Result<()> {
-    let mut producer = Producer::new("/tmp/foo", "test", 0)?;
+    let mut writer = Writer::new("/tmp/foo", "test", 0)?;
 
     for i in 0..1024*256 {
         let messages: Vec<Vec<u8>> = (0..10)
@@ -57,7 +57,7 @@ fn test_put_batch() -> Result<()> {
             .collect();
 
         let batch: Vec<&[u8]> = messages.iter().map(|v| v.as_slice()).collect();
-        producer.put_batch(&batch)?;
+        writer.put_batch(&batch)?;
     }
 
     Ok(())
