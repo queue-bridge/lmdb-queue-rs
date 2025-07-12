@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::{fs::{File, OpenOptions}, io::Write, time::{SystemTime, UNIX_EPOCH}};
 
-struct Writer {
+pub struct Writer {
     fd: File,
     prefix: String,
     file_num: u64,

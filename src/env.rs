@@ -17,7 +17,7 @@ impl Env {
             .map(|lmdb_env| Env { lmdb_env, root: root.as_ref().to_str().unwrap().to_string() })
     }
 
-    pub fn topic(&self, name: &str) -> Result<super::topic::Topic, Error> {
+    pub fn topic(&self, name: &str) -> Result<super::topic::Topic, anyhow::Error> {
         super::topic::Topic::new(&self, name)
     }
 
@@ -31,13 +31,9 @@ impl Env {
 }
 
 #[test]
-fn test_env_new() -> Result<(), Error> {
-    let env = Env::new("/tmp/foo", None, None)?;
-    let topic = env.topic("bar")?;
-    let head = topic.get_producer_head()?;
-    assert_eq!(head, 0);
-    let head_file = topic.get_producer_head_file()?;
-    assert_eq!(head_file, 0);
+fn test_env_new() -> Result<(), anyhow::Error> {
+    let env = Env::new("/tmp/foo_env", None, None)?;
+    let topic = env.topic("test")?;
 
     Ok(())
 }

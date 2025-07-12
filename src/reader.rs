@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use std::{fs::{File, OpenOptions}, io::{self, Read}, time::{SystemTime, UNIX_EPOCH}};
 
-struct Reader {
+pub struct Reader {
     fd: File,
     prefix: String,
     file_num: u64,
