@@ -17,15 +17,14 @@ pub fn u64_to_bytes(v: u64) -> [u8; 8] {
     v.to_be_bytes()
 }
 
-pub struct Topic<'env> {
+pub struct Producer<'env> {
     env: &'env Env,
     db: Database,
     writer: Writer,
-    reader: Reader,
 }
 
-impl<'env> Topic<'env> {
-    pub fn new(env: &'env Env, name: &str) -> Result<Topic<'env>, anyhow::Error> {
+impl<'env> Producer<'env> {
+    pub fn new(env: &'env Env, name: &str) -> Result<Self, anyhow::Error> {
         let mut txn = env.transaction_rw()?;
         let db = unsafe { txn.create_db(Some(name), DatabaseFlags::empty())? };
 
@@ -35,15 +34,14 @@ impl<'env> Topic<'env> {
             txn.put(db, zero, zero, WriteFlags::NO_OVERWRITE)?;
         }
 
-        let writer = Writer::new(&env.root, name, Topic::get_producer_head(db, &txn)?)?;
-        let reader = Reader::new(&env.root, name, Topic::get_comsumer_head(db, &txn)?)?;
+        let writer = Writer::new(&env.root, name, Producer::get_tail(db, &txn)?)?;
 
         txn.commit()?;
 
-        Ok(Topic { env, db, writer, reader })
+        Ok(Producer { env, db, writer })
     }
 
-    pub fn get_producer_head<TXN>(db: Database, txn: &TXN) -> Result<u64, Error>
+    fn get_tail<TXN>(db: Database, txn: &TXN) -> Result<u64, Error>
     where TXN: Transaction
     {
         let cur = txn.open_ro_cursor(db)?;
@@ -53,8 +51,24 @@ impl<'env> Topic<'env> {
             Err(Error::NotFound)
         }
     }
+}
 
-    pub fn get_comsumer_head<TXN>(db: Database, txn: &TXN) -> Result<u64, Error>
+pub struct Comsumer<'env> {
+    env: &'env Env,
+    db: Database,
+    reader: Reader,
+}
+
+impl <'env> Comsumer<'env> {
+    pub fn new(env: &'env Env, name: &str) -> Result<Self, anyhow::Error> {
+        let db = env.lmdb_env.open_db(Some(name))?;
+        let txn = env.transaction_ro()?;
+        let reader = Reader::new(&env.root, name, Comsumer::get_head(db, &txn)?)?;
+
+        Ok(Comsumer { env, db, reader })
+    }
+
+    fn get_head<TXN>(db: Database, txn: &TXN) -> Result<u64, Error>
     where TXN: Transaction
     {
         let cur = txn.open_ro_cursor(db)?;

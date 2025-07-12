@@ -3,7 +3,7 @@ use lmdb::{Environment, RoTransaction, RwTransaction, EnvironmentFlags, Error};
 use libc::{c_uint, size_t};
 
 pub struct Env {
-    lmdb_env: lmdb::Environment,
+    pub lmdb_env: lmdb::Environment,
     pub root: String,
 }
 
@@ -17,8 +17,12 @@ impl Env {
             .map(|lmdb_env| Env { lmdb_env, root: root.as_ref().to_str().unwrap().to_string() })
     }
 
-    pub fn topic(&self, name: &str) -> Result<super::topic::Topic, anyhow::Error> {
-        super::topic::Topic::new(&self, name)
+    pub fn producer(&self, name: &str) -> Result<super::topic::Producer, anyhow::Error> {
+        super::topic::Producer::new(&self, name)
+    }
+
+    pub fn comsumer(&self, name: &str) -> Result<super::topic::Comsumer, anyhow::Error> {
+        super::topic::Comsumer::new(&self, name)
     }
 
     pub fn transaction_ro(&self) -> Result<RoTransaction, Error> {
@@ -33,7 +37,8 @@ impl Env {
 #[test]
 fn test_env_new() -> Result<(), anyhow::Error> {
     let env = Env::new("/tmp/foo_env", None, None)?;
-    let topic = env.topic("test")?;
+    let producer = env.producer("test")?;
+    let comsumer = env.comsumer("test")?;
 
     Ok(())
 }
