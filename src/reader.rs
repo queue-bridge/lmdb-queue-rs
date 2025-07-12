@@ -1,5 +1,9 @@
 use anyhow::{Result, anyhow};
-use std::{fs::{File, OpenOptions}, io::{self, Read}, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    fs::{File, OpenOptions},
+    io::{Read},
+    time::{SystemTime, UNIX_EPOCH}
+};
 
 pub struct Reader {
     fd: File,
@@ -24,6 +28,9 @@ impl Reader {
     }
 
     pub fn rotate(&mut self) -> Result<()> {
+        let old_path = format!("{}-{:016x}", self.prefix, self.file_num);
+        std::fs::remove_file(old_path)?;
+
         self.file_num = self.file_num + 1;
         let path = format!("{}-{:016x}", self.prefix, self.file_num);
         self.fd = OpenOptions::new()
@@ -69,7 +76,7 @@ fn test_reader() -> Result<()> {
                     println!("Read {} messages, ts: {}, data: {}.", total, item.ts, String::from_utf8(item.data)?);
                 }
             }
-            Err(e) => {
+            Err(_) => {
                 println!("Read {} messages.", total);
                 if let Err(_) = reader.rotate() {
                     break;

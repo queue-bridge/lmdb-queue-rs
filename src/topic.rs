@@ -1,8 +1,8 @@
-use lmdb::{Cursor, Database, DatabaseFlags, Error, Transaction, WriteFlags};
-use lmdb_sys::{MDB_LAST, MDB_FIRST};
+use lmdb::{Cursor, Database, DatabaseFlags, Error, RwTransaction, Transaction, WriteFlags};
+use lmdb_sys::MDB_LAST;
 use super::env::Env;
 
-use super::reader::Reader;
+use super::reader::{Reader, Item};
 use super::writer::Writer;
 
 pub static KEY_COMSUMER_FILE: [u8; 1] = [0];
@@ -83,19 +83,88 @@ impl <'env> Comsumer<'env> {
     pub fn new(env: &'env Env, name: &str) -> Result<Self, anyhow::Error> {
         let db = env.lmdb_env.open_db(Some(name))?;
         let txn = env.transaction_ro()?;
-        let reader = Reader::new(&env.root, name, Comsumer::get_head(db, &txn)?)?;
+        let reader = Reader::new(&env.root, name, Comsumer::get_value(db, &txn, &KEY_COMSUMER_FILE)?)?;
 
         Ok(Comsumer { env, db, reader })
     }
 
-    fn get_head<TXN>(db: Database, txn: &TXN) -> Result<u64, Error>
-    where TXN: Transaction
-    {
-        let cur = txn.open_ro_cursor(db)?;
-        if let (Some(_), value) = cur.get(None, None, MDB_FIRST)? {
-            slice_to_u64(value)
-        } else {
-            Err(Error::NotFound)
+    pub fn pop_front_n(&mut self, n: u64) -> Result<Vec<Item>, anyhow::Error> {
+        let mut txn: RwTransaction<'_> = self.env.transaction_rw()?;
+        let mut items = vec![];
+        let mut delta = 0;
+        for _ in 0..n {
+            match self.reader.read() {
+                Ok(item) => {
+                    items.push(item);
+                    delta += 1;
+                },
+                Err(_) => {
+                    if self.rotate(&mut txn)? {
+                        items.push(self.reader.read()?);
+                        delta = 1;
+                    } else {
+                        txn.commit()?;
+                        return Ok(items);
+                    }
+                }
+            }
+        }
+
+        self.bump_offset(&mut txn, delta)?;
+        txn.commit()?;
+        Ok(items)
+    }
+
+    pub fn pop_front(&mut self) -> Result<Option<Item>, anyhow::Error> {
+        let mut txn = self.env.transaction_rw()?;
+        match self.reader.read() {
+            Ok(item) => {
+                self.bump_offset(&mut txn, 1)?;
+                txn.commit()?;
+                return Ok(Some(item));
+            },
+            Err(_) => {
+                if self.rotate(&mut txn)? {
+                    let item = self.reader.read()?;
+                    self.bump_offset(&mut txn, 1)?;
+                    txn.commit()?;
+                    return Ok(Some(item));
+                } else {
+                    txn.commit()?;
+                    return Ok(None);
+                }
+            }
         }
     }
+
+    fn rotate(&mut self, txn: &mut RwTransaction) -> Result<bool, anyhow::Error> {
+        let head = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
+        let (tail, _) = Producer::get_tail(self.db, txn)?;
+        if tail > head {
+            self.reader.rotate()?;
+            txn.del(self.db, &u64_to_bytes(head), None)?;
+            txn.put(self.db, &KEY_COMSUMER_FILE, &u64_to_bytes(head + 1), WriteFlags::empty())?;
+            txn.put(self.db, &KEY_COMSUMER_OFFSET, &u64_to_bytes(0), WriteFlags::empty())?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn bump_offset(&self, txn: &mut RwTransaction, delta: u64) -> Result<(), Error> {
+        let head = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
+        let head_count = Comsumer::get_value(self.db, txn, &u64_to_bytes(head))?;
+        assert!(head_count > head);
+        txn.put(self.db, &u64_to_bytes(head), &u64_to_bytes(head_count - delta), WriteFlags::empty())?;
+        let old_offset = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_OFFSET)?;
+        txn.put(self.db, &KEY_COMSUMER_OFFSET, &u64_to_bytes(old_offset + delta), WriteFlags::empty())?;
+        Ok(())
+    }
+
+    fn get_value<TXN>(db: Database, txn: &TXN, key: &[u8]) -> Result<u64, Error>
+    where TXN: Transaction
+    {
+        let value = txn.get(db, &key)?;
+        slice_to_u64(value)
+    }    
 }
