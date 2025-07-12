@@ -2,6 +2,7 @@ use lmdb::{Cursor, Database, DatabaseFlags, Error, Transaction, WriteFlags};
 use lmdb_sys::{mdb_set_compare, MDB_val, MDB_LAST};
 use libc::{c_int, memcmp};
 use super::env::Env;
+use std::ptr;
 
 pub static KEY_PRODUCER: &'static [u8] = b"producer_head";
 
@@ -21,8 +22,8 @@ pub struct Topic<'env> {
 
 pub extern "C" fn mdb_int_cmp_u64(a: *const MDB_val, b: *const MDB_val) -> c_int {
     unsafe {
-        let a_val = *( (*a).mv_data as *const u64 );
-        let b_val = *( (*b).mv_data as *const u64 );
+        let a_val = ptr::read_unaligned((*a).mv_data as *const u64);
+        let b_val = ptr::read_unaligned((*b).mv_data as *const u64);
         a_val.cmp(&b_val) as c_int  // reverse for DESC
     }
 }
