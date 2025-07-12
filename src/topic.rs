@@ -5,7 +5,8 @@ use super::env::Env;
 use super::reader::Reader;
 use super::writer::Writer;
 
-pub static KEY_COMSUMER: [u8; 1] = [0];
+pub static KEY_COMSUMER_FILE: [u8; 1] = [0];
+pub static KEY_COMSUMER_OFFSET: [u8; 2] = [0, 0];
 
 pub fn slice_to_u64(slice: &[u8]) -> Result<u64, Error> {
     let arr: [u8; 8] = slice.try_into().map_err(|_| Error::Corrupted)?;
@@ -29,7 +30,8 @@ impl<'env> Topic<'env> {
         let db = unsafe { txn.create_db(Some(name), DatabaseFlags::empty())? };
 
         let zero = &u64_to_bytes(0);
-        if let Ok(_) = txn.put(db, &KEY_COMSUMER, zero, WriteFlags::NO_OVERWRITE) {
+        if let Ok(_) = txn.put(db, &KEY_COMSUMER_FILE, zero, WriteFlags::NO_OVERWRITE) {
+            txn.put(db, &KEY_COMSUMER_OFFSET, zero, WriteFlags::NO_OVERWRITE)?;
             txn.put(db, zero, zero, WriteFlags::NO_OVERWRITE)?;
         }
 
