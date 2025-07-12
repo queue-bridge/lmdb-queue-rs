@@ -46,9 +46,9 @@ impl<'env> Producer<'env> {
     where B: AsRef<[&'a [u8]]>
     {
         let mut txn = self.env.transaction_rw()?;
-        let (tail_file, offset) = Producer::get_tail(self.db, &txn)?;
+        let (tail_file, count) = Producer::get_tail(self.db, &txn)?;
         let size = self.writer.put_batch(messages)?;
-        txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(offset + messages.as_ref().len() as u64), WriteFlags::empty())?;
+        txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(count + messages.as_ref().len() as u64), WriteFlags::empty())?;
         if size > 64 * 1024 * 1024 {
             self.writer.rotate()?;
             txn.put(self.db, &u64_to_bytes(tail_file + 1), &u64_to_bytes(0), WriteFlags::empty())?;
@@ -83,7 +83,12 @@ impl <'env> Comsumer<'env> {
     pub fn new(env: &'env Env, name: &str) -> Result<Self, anyhow::Error> {
         let db = env.lmdb_env.open_db(Some(name))?;
         let txn = env.transaction_ro()?;
-        let reader = Reader::new(&env.root, name, Comsumer::get_value(db, &txn, &KEY_COMSUMER_FILE)?)?;
+        let mut reader = Reader::new(&env.root, name, Comsumer::get_value(db, &txn, &KEY_COMSUMER_FILE)?)?;
+
+        let offset = Comsumer::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
+        for _ in 0..offset {
+            reader.read()?;
+        }
 
         Ok(Comsumer { env, db, reader })
     }
@@ -152,10 +157,6 @@ impl <'env> Comsumer<'env> {
     }
 
     fn bump_offset(&self, txn: &mut RwTransaction, delta: u64) -> Result<(), Error> {
-        let head = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
-        let head_count = Comsumer::get_value(self.db, txn, &u64_to_bytes(head))?;
-        assert!(head_count > head);
-        txn.put(self.db, &u64_to_bytes(head), &u64_to_bytes(head_count - delta), WriteFlags::empty())?;
         let old_offset = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_OFFSET)?;
         txn.put(self.db, &KEY_COMSUMER_OFFSET, &u64_to_bytes(old_offset + delta), WriteFlags::empty())?;
         Ok(())

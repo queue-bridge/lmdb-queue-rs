@@ -37,8 +37,25 @@ impl Env {
 #[test]
 fn test_env_new() -> Result<(), anyhow::Error> {
     let env = Env::new("/tmp/foo_env", None, None)?;
-    let producer = env.producer("test")?;
-    let comsumer = env.comsumer("test")?;
+    let mut producer = env.producer("test")?;
+    for i in 0..1024*1024 {
+        producer.push_back(&format!("{}", i).as_bytes())?;
+    }
+
+    let mut comsumer = env.comsumer("test")?;
+    let mut message_count = 0;
+    loop {
+        let item = comsumer.pop_front()?;
+        if let Some(item) = item {
+            message_count += 1;
+            if message_count % (1024 * 100) == 0 {
+                println!("Got message: {}", String::from_utf8(item.data)?);
+            }
+        } else {
+            println!("Read {} messages.", message_count);
+            break;
+        }
+    }
 
     Ok(())
 }
