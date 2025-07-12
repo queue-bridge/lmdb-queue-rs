@@ -6,15 +6,15 @@ struct Producer {
 }
 
 impl Producer {
-    pub fn new(root: &str, topic_name: &str, file_num: u64) -> Self {
+    pub fn new(root: &str, topic_name: &str, file_num: u64) -> Result<Self> {
         let path = format!("{}-{}-{:016x}", root, topic_name, file_num);
         let fd = OpenOptions::new()
             .write(true)
             .create(true)
             .append(true)
-            .open(path)
-            .unwrap();
-        Self { fd }
+            .open(path)?;
+
+        Ok(Self { fd })
     }
 
     fn append(&mut self, message: &[u8]) -> Result<()> {
@@ -49,7 +49,7 @@ impl Producer {
 
 #[test]
 fn test_put_batch() -> Result<()> {
-    let mut producer = Producer::new("/tmp/foo", "test", 0);
+    let mut producer = Producer::new("/tmp/foo", "test", 0)?;
 
     for i in 0..1024*256 {
         let messages: Vec<Vec<u8>> = (0..10)
