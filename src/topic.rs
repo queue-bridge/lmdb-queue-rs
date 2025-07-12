@@ -34,19 +34,39 @@ impl<'env> Producer<'env> {
             txn.put(db, zero, zero, WriteFlags::NO_OVERWRITE)?;
         }
 
-        let writer = Writer::new(&env.root, name, Producer::get_tail(db, &txn)?)?;
+        let (tail_file, _) = Producer::get_tail(db, &txn)?;
+        let writer = Writer::new(&env.root, name, tail_file)?;
 
         txn.commit()?;
 
         Ok(Producer { env, db, writer })
     }
 
-    fn get_tail<TXN>(db: Database, txn: &TXN) -> Result<u64, Error>
+    pub fn push_back_batch<'a, B>(&mut self, messages: &'a B) -> Result<(), anyhow::Error>
+    where B: AsRef<[&'a [u8]]>
+    {
+        let mut txn = self.env.transaction_rw()?;
+        let (tail_file, offset) = Producer::get_tail(self.db, &txn)?;
+        let size = self.writer.put_batch(messages)?;
+        txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(offset + messages.as_ref().len() as u64), WriteFlags::empty())?;
+        if size > 64 * 1024 * 1024 {
+            self.writer.rotate()?;
+            txn.put(self.db, &u64_to_bytes(tail_file + 1), &u64_to_bytes(0), WriteFlags::empty())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn push_back<'a>(&mut self, message: &'a [u8]) -> Result<(), anyhow::Error> {
+        self.push_back_batch(&[message])
+    }
+
+    fn get_tail<TXN>(db: Database, txn: &TXN) -> Result<(u64, u64), Error>
     where TXN: Transaction
     {
         let cur = txn.open_ro_cursor(db)?;
-        if let (Some(key), _) = cur.get(None, None, MDB_LAST)? {
-            slice_to_u64(key)
+        if let (Some(key), value) = cur.get(None, None, MDB_LAST)? {
+            Ok((slice_to_u64(key)?, slice_to_u64(value)?))
         } else {
             Err(Error::NotFound)
         }

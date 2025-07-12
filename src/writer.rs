@@ -56,11 +56,6 @@ impl Writer {
         }
         Ok(self.fd.metadata()?.len())
     }
-
-    pub fn put(&mut self, message: &[u8]) -> Result<u64> {
-        self.append(message)?;
-        Ok(self.fd.metadata()?.len())
-    }
 }
 
 #[test]
