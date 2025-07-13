@@ -3,6 +3,13 @@ name = "lmdb-queue"
 version = "0.1.0"
 edition = "2024"
 
+description = "A lightning fast disk based queue, meta data is stored in lmdb."
+license = "Apache-2.0"
+authors = ["Tal <talrasha007@gmail.com>"]
+repository = "https://github.com/queue-bridge/lmdb-queue-rs.git"
+readme = "README.md"
+keywords = ["LMDB", "queue"]
+
 [dependencies]
 libc = "0.2"
 lmdb = "0.8"
