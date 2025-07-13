@@ -37,12 +37,15 @@ impl Env {
 #[test]
 fn test_single() -> Result<(), anyhow::Error> {
     let env = Env::new("/tmp/foo_env", None, None)?;
-    let mut producer = env.producer("test", Some(1024 * 1024))?;
+    let mut producer = env.producer("test", Some(16 *1024 * 1024))?;
     for i in 0..1024*1024 {
         producer.push_back(&format!("{}", i).as_bytes())?;
     }
 
     let mut comsumer = env.comsumer("test", None)?;
+    let lag = comsumer.lag()?;
+    println!("Current lag is: {}", lag);
+
     let mut message_count = 0;
     loop {
         let item = comsumer.pop_front()?;
@@ -50,6 +53,8 @@ fn test_single() -> Result<(), anyhow::Error> {
             message_count += 1;
             if message_count % (1024 * 100) == 0 {
                 println!("Got message: {}", String::from_utf8(item.data)?);
+                let cur_lag = comsumer.lag()?;
+                assert!(lag == cur_lag + message_count as u64);
             }
         } else {
             println!("Read {} messages.", message_count);
@@ -63,7 +68,7 @@ fn test_single() -> Result<(), anyhow::Error> {
 #[test]
 fn test_batch() -> Result<(), anyhow::Error> {
     let env = Env::new("/tmp/foo_env", None, None)?;
-    let mut producer = env.producer("test", Some(1024 * 1024))?;
+    let mut producer = env.producer("test", Some(16 * 1024 * 1024))?;
     for i in 0..1024*100 {
         let vec: Vec<String> = (0..10).map(|v| format!("{}_{}", i, v)).collect();
         let batch: Vec<&[u8]> = vec.iter().map(|v| v.as_bytes()).collect();
@@ -72,7 +77,8 @@ fn test_batch() -> Result<(), anyhow::Error> {
     }
 
     let mut comsumer = env.comsumer("test", None)?;
-    println!("Current lag is: {}", comsumer.lag()?);
+    let lag = comsumer.lag()?;
+    println!("Current lag is: {}", lag);
     let mut message_count = 0;
     loop {
         let items = comsumer.pop_front_n(10)?;
@@ -80,6 +86,8 @@ fn test_batch() -> Result<(), anyhow::Error> {
             message_count += items.len();
             if message_count % (1024 * 100) == 0 {
                 println!("Got message: {}", String::from_utf8(items[0].data.clone())?);
+                let cur_lag = comsumer.lag()?;
+                assert!(lag == cur_lag + message_count as u64);
             }
         } else {
             println!("Read {} messages.", message_count);
