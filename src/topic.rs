@@ -17,11 +17,58 @@ pub fn u64_to_bytes(v: u64) -> [u8; 8] {
     v.to_be_bytes()
 }
 
+pub trait Topic {
+    fn get_env(&self) -> &Env;
+    fn get_db(&self) -> Database;
+
+    fn lag(&self) -> Result<u64, Error> {
+        let txn = self.get_env().transaction_ro()?;
+        let db = self.get_db();
+        let head = Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?;
+        let (tail, _) = Self::get_tail(db, &txn)?;
+        let total = (head..tail + 1)
+            .map(|v| Self::get_value(db, &txn, &u64_to_bytes(v)).unwrap_or(0))
+            .reduce(|acc, v| acc + v)
+            .unwrap_or(0);
+
+        let head_offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
+        Ok(total - head_offset)
+    }
+
+    fn get_tail<TXN>(db: Database, txn: &TXN) -> Result<(u64, u64), Error>
+    where TXN: Transaction
+    {
+        let cur = txn.open_ro_cursor(db)?;
+        if let (Some(key), value) = cur.get(None, None, MDB_LAST)? {
+            Ok((slice_to_u64(key)?, slice_to_u64(value)?))
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    fn get_value<TXN>(db: Database, txn: &TXN, key: &[u8]) -> Result<u64, Error>
+    where TXN: Transaction
+    {
+        let value = txn.get(db, &key)?;
+        slice_to_u64(value)
+    }
+}
+
 pub struct Producer<'env> {
     env: &'env Env,
     db: Database,
     writer: Writer,
     chunk_size: u64,
+}
+
+impl<'env> Topic for Producer<'env> {
+    fn get_env(&self) -> &Env {
+        self.env
+    }
+
+    fn get_db(&self) -> Database {
+        self.db
+    }
 }
 
 impl<'env> Producer<'env> {
@@ -35,7 +82,7 @@ impl<'env> Producer<'env> {
             txn.put(db, zero, zero, WriteFlags::NO_OVERWRITE)?;
         }
 
-        let (tail_file, _) = Producer::get_tail(db, &txn)?;
+        let (tail_file, _) = Self::get_tail(db, &txn)?;
         let writer = Writer::new(&env.root, name, tail_file)?;
 
         txn.commit()?;
@@ -47,7 +94,7 @@ impl<'env> Producer<'env> {
     where B: AsRef<[&'a [u8]]>
     {
         let mut txn = self.env.transaction_rw()?;
-        let (mut tail_file, mut count) = Producer::get_tail(self.db, &txn)?;
+        let (mut tail_file, mut count) = Self::get_tail(self.db, &txn)?;
         if self.writer.file_size()? > self.chunk_size {
             self.writer.rotate()?;
             tail_file += 1;
@@ -63,17 +110,6 @@ impl<'env> Producer<'env> {
     pub fn push_back<'a>(&mut self, message: &'a [u8]) -> Result<(), anyhow::Error> {
         self.push_back_batch(&[message])
     }
-
-    fn get_tail<TXN>(db: Database, txn: &TXN) -> Result<(u64, u64), Error>
-    where TXN: Transaction
-    {
-        let cur = txn.open_ro_cursor(db)?;
-        if let (Some(key), value) = cur.get(None, None, MDB_LAST)? {
-            Ok((slice_to_u64(key)?, slice_to_u64(value)?))
-        } else {
-            Err(Error::NotFound)
-        }
-    }
 }
 
 pub struct Comsumer<'env> {
@@ -83,13 +119,23 @@ pub struct Comsumer<'env> {
     chunks_to_keep: u64,
 }
 
+impl <'env> Topic for Comsumer<'env> {
+    fn get_env(&self) -> &Env {
+        self.env
+    }
+
+    fn get_db(&self) -> Database {
+        self.db
+    }    
+}
+
 impl <'env> Comsumer<'env> {
     pub fn new(env: &'env Env, name: &str, chunks_to_keep: Option<u64>) -> Result<Self, anyhow::Error> {
         let db = env.lmdb_env.open_db(Some(name))?;
         let txn = env.transaction_ro()?;
-        let mut reader = Reader::new(&env.root, name, Comsumer::get_value(db, &txn, &KEY_COMSUMER_FILE)?)?;
+        let mut reader = Reader::new(&env.root, name, Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?)?;
 
-        let offset = Comsumer::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
+        let offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
         for _ in 0..offset {
             reader.read()?;
         }
@@ -150,22 +196,9 @@ impl <'env> Comsumer<'env> {
         }
     }
 
-    pub fn lag(&self) -> Result<u64, Error> {
-        let txn = self.env.transaction_ro()?;
-        let head = Comsumer::get_value(self.db, &txn, &KEY_COMSUMER_FILE)?;
-        let (tail, _) = Producer::get_tail(self.db, &txn)?;
-        let total = (head..tail + 1)
-            .map(|v| Comsumer::get_value(self.db, &txn, &u64_to_bytes(v)).unwrap_or(0))
-            .reduce(|acc, v| acc + v)
-            .unwrap_or(0);
-
-        let head_offset = Comsumer::get_value(self.db, &txn, &KEY_COMSUMER_OFFSET)?;
-        Ok(total - head_offset)
-    }
-
     fn check_chunks_to_keep(&mut self, txn: &mut RwTransaction) -> Result<(), anyhow::Error> {
-        let head = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
-        let (tail, _) = Producer::get_tail(self.db, txn)?;
+        let head = Self::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
+        let (tail, _) = Self::get_tail(self.db, txn)?;
         let chunk_to_remove: i64 = tail as i64 + 1 - head as i64 - self.chunks_to_keep as i64;
         for _ in 0..chunk_to_remove {
             self.rotate(txn)?;
@@ -175,8 +208,8 @@ impl <'env> Comsumer<'env> {
     }
 
     fn rotate(&mut self, txn: &mut RwTransaction) -> Result<bool, anyhow::Error> {
-        let head = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
-        let (tail, _) = Producer::get_tail(self.db, txn)?;
+        let head = Self::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
+        let (tail, _) = Self::get_tail(self.db, txn)?;
         if tail > head {
             self.reader.rotate()?;
             txn.del(self.db, &u64_to_bytes(head), None)?;
@@ -189,15 +222,8 @@ impl <'env> Comsumer<'env> {
     }
 
     fn bump_offset(&self, txn: &mut RwTransaction, delta: u64) -> Result<(), Error> {
-        let old_offset = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_OFFSET)?;
+        let old_offset = Self::get_value(self.db, txn, &KEY_COMSUMER_OFFSET)?;
         txn.put(self.db, &KEY_COMSUMER_OFFSET, &u64_to_bytes(old_offset + delta), WriteFlags::empty())?;
         Ok(())
     }
-
-    fn get_value<TXN>(db: Database, txn: &TXN, key: &[u8]) -> Result<u64, Error>
-    where TXN: Transaction
-    {
-        let value = txn.get(db, &key)?;
-        slice_to_u64(value)
-    }    
 }

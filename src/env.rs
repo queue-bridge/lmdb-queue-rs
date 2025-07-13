@@ -2,6 +2,8 @@ use std::path::Path;
 use lmdb::{Environment, RoTransaction, RwTransaction, EnvironmentFlags, Error};
 use libc::{c_uint, size_t};
 
+use super::topic::{Topic, Comsumer, Producer};
+
 pub struct Env {
     pub lmdb_env: lmdb::Environment,
     pub root: String,
@@ -18,11 +20,11 @@ impl Env {
     }
 
     pub fn producer(&self, name: &str, chunk_size: Option<u64>) -> Result<super::topic::Producer, anyhow::Error> {
-        super::topic::Producer::new(&self, name, chunk_size)
+        Producer::new(&self, name, chunk_size)
     }
 
     pub fn comsumer(&self, name: &str, chunks_to_keep: Option<u64>) -> Result<super::topic::Comsumer, anyhow::Error> {
-        super::topic::Comsumer::new(&self, name, chunks_to_keep)
+        Comsumer::new(&self, name, chunks_to_keep)
     }
 
     pub fn transaction_ro(&self) -> Result<RoTransaction, Error> {
