@@ -72,6 +72,7 @@ fn test_batch() -> Result<(), anyhow::Error> {
     }
 
     let mut comsumer = env.comsumer("test", None)?;
+    println!("Current lag is: {}", comsumer.lag()?);
     let mut message_count = 0;
     loop {
         let items = comsumer.pop_front_n(10)?;

@@ -47,10 +47,11 @@ impl<'env> Producer<'env> {
     where B: AsRef<[&'a [u8]]>
     {
         let mut txn = self.env.transaction_rw()?;
-        let (mut tail_file, count) = Producer::get_tail(self.db, &txn)?;
+        let (mut tail_file, mut count) = Producer::get_tail(self.db, &txn)?;
         if self.writer.file_size()? > self.chunk_size {
             self.writer.rotate()?;
             tail_file += 1;
+            count = 0;
             txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(0), WriteFlags::empty())?;
         }
         self.writer.put_batch(messages)?;
@@ -147,6 +148,19 @@ impl <'env> Comsumer<'env> {
                 }
             }
         }
+    }
+
+    pub fn lag(&self) -> Result<u64, Error> {
+        let txn = self.env.transaction_ro()?;
+        let head = Comsumer::get_value(self.db, &txn, &KEY_COMSUMER_FILE)?;
+        let (tail, _) = Producer::get_tail(self.db, &txn)?;
+        let total = (head..tail + 1)
+            .map(|v| Comsumer::get_value(self.db, &txn, &u64_to_bytes(v)).unwrap_or(0))
+            .reduce(|acc, v| acc + v)
+            .unwrap_or(0);
+
+        let head_offset = Comsumer::get_value(self.db, &txn, &KEY_COMSUMER_OFFSET)?;
+        Ok(total - head_offset)
     }
 
     fn check_chunks_to_keep(&mut self, txn: &mut RwTransaction) -> Result<(), anyhow::Error> {
