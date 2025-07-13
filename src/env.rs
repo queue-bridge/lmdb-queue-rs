@@ -2,7 +2,10 @@ use std::path::Path;
 use lmdb::{Environment, RoTransaction, RwTransaction, EnvironmentFlags, Error};
 use libc::{c_uint, size_t};
 
-use super::topic::{Topic, Comsumer, Producer};
+use super::topic::{Comsumer, Producer};
+
+#[cfg(test)]
+use super::topic::Topic;
 
 pub struct Env {
     pub lmdb_env: lmdb::Environment,
