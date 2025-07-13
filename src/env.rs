@@ -17,12 +17,12 @@ impl Env {
             .map(|lmdb_env| Env { lmdb_env, root: root.as_ref().to_str().unwrap().to_string() })
     }
 
-    pub fn producer(&self, name: &str) -> Result<super::topic::Producer, anyhow::Error> {
-        super::topic::Producer::new(&self, name)
+    pub fn producer(&self, name: &str, chunk_size: Option<u64>) -> Result<super::topic::Producer, anyhow::Error> {
+        super::topic::Producer::new(&self, name, chunk_size)
     }
 
-    pub fn comsumer(&self, name: &str) -> Result<super::topic::Comsumer, anyhow::Error> {
-        super::topic::Comsumer::new(&self, name)
+    pub fn comsumer(&self, name: &str, chunks_to_keep: Option<u64>) -> Result<super::topic::Comsumer, anyhow::Error> {
+        super::topic::Comsumer::new(&self, name, chunks_to_keep)
     }
 
     pub fn transaction_ro(&self) -> Result<RoTransaction, Error> {
@@ -37,12 +37,12 @@ impl Env {
 #[test]
 fn test_single() -> Result<(), anyhow::Error> {
     let env = Env::new("/tmp/foo_env", None, None)?;
-    let mut producer = env.producer("test")?;
+    let mut producer = env.producer("test", Some(1024 * 1024))?;
     for i in 0..1024*1024 {
         producer.push_back(&format!("{}", i).as_bytes())?;
     }
 
-    let mut comsumer = env.comsumer("test")?;
+    let mut comsumer = env.comsumer("test", None)?;
     let mut message_count = 0;
     loop {
         let item = comsumer.pop_front()?;
@@ -63,7 +63,7 @@ fn test_single() -> Result<(), anyhow::Error> {
 #[test]
 fn test_batch() -> Result<(), anyhow::Error> {
     let env = Env::new("/tmp/foo_env", None, None)?;
-    let mut producer = env.producer("test")?;
+    let mut producer = env.producer("test", Some(1024 * 1024))?;
     for i in 0..1024*100 {
         let vec: Vec<String> = (0..10).map(|v| format!("{}_{}", i, v)).collect();
         let batch: Vec<&[u8]> = vec.iter().map(|v| v.as_bytes()).collect();
@@ -71,7 +71,7 @@ fn test_batch() -> Result<(), anyhow::Error> {
         producer.push_back_batch(&batch)?;
     }
 
-    let mut comsumer = env.comsumer("test")?;
+    let mut comsumer = env.comsumer("test", None)?;
     let mut message_count = 0;
     loop {
         let items = comsumer.pop_front_n(10)?;

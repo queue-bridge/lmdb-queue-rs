@@ -21,10 +21,11 @@ pub struct Producer<'env> {
     env: &'env Env,
     db: Database,
     writer: Writer,
+    chunk_size: u64,
 }
 
 impl<'env> Producer<'env> {
-    pub fn new(env: &'env Env, name: &str) -> Result<Self, anyhow::Error> {
+    pub fn new(env: &'env Env, name: &str, chunk_size: Option<u64>) -> Result<Self, anyhow::Error> {
         let mut txn = env.transaction_rw()?;
         let db = unsafe { txn.create_db(Some(name), DatabaseFlags::empty())? };
 
@@ -39,7 +40,7 @@ impl<'env> Producer<'env> {
 
         txn.commit()?;
 
-        Ok(Producer { env, db, writer })
+        Ok(Producer { env, db, writer, chunk_size: chunk_size.unwrap_or(64 * 1024 * 1024) })
     }
 
     pub fn push_back_batch<'a, B>(&mut self, messages: &'a B) -> Result<(), anyhow::Error>
@@ -47,7 +48,7 @@ impl<'env> Producer<'env> {
     {
         let mut txn = self.env.transaction_rw()?;
         let (mut tail_file, count) = Producer::get_tail(self.db, &txn)?;
-        if self.writer.file_size()? > 64 * 1024 * 1024 {
+        if self.writer.file_size()? > self.chunk_size {
             self.writer.rotate()?;
             tail_file += 1;
             txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(0), WriteFlags::empty())?;
@@ -78,10 +79,11 @@ pub struct Comsumer<'env> {
     env: &'env Env,
     db: Database,
     reader: Reader,
+    chunks_to_keep: u64,
 }
 
 impl <'env> Comsumer<'env> {
-    pub fn new(env: &'env Env, name: &str) -> Result<Self, anyhow::Error> {
+    pub fn new(env: &'env Env, name: &str, chunks_to_keep: Option<u64>) -> Result<Self, anyhow::Error> {
         let db = env.lmdb_env.open_db(Some(name))?;
         let txn = env.transaction_ro()?;
         let mut reader = Reader::new(&env.root, name, Comsumer::get_value(db, &txn, &KEY_COMSUMER_FILE)?)?;
@@ -91,11 +93,13 @@ impl <'env> Comsumer<'env> {
             reader.read()?;
         }
 
-        Ok(Comsumer { env, db, reader })
+        Ok(Comsumer { env, db, reader, chunks_to_keep: chunks_to_keep.unwrap_or(8) })
     }
 
     pub fn pop_front_n(&mut self, n: u64) -> Result<Vec<Item>, anyhow::Error> {
         let mut txn: RwTransaction<'_> = self.env.transaction_rw()?;
+        self.check_chunks_to_keep(&mut txn)?;
+
         let mut items = vec![];
         let mut delta = 0;
         for _ in 0..n {
@@ -123,6 +127,8 @@ impl <'env> Comsumer<'env> {
 
     pub fn pop_front(&mut self) -> Result<Option<Item>, anyhow::Error> {
         let mut txn = self.env.transaction_rw()?;
+        self.check_chunks_to_keep(&mut txn)?;
+
         match self.reader.read() {
             Ok(item) => {
                 self.bump_offset(&mut txn, 1)?;
@@ -141,6 +147,17 @@ impl <'env> Comsumer<'env> {
                 }
             }
         }
+    }
+
+    fn check_chunks_to_keep(&mut self, txn: &mut RwTransaction) -> Result<(), anyhow::Error> {
+        let head = Comsumer::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
+        let (tail, _) = Producer::get_tail(self.db, txn)?;
+        let chunk_to_remove: i64 = tail as i64 + 1 - head as i64 - self.chunks_to_keep as i64;
+        for _ in 0..chunk_to_remove {
+            self.rotate(txn)?;
+        }
+
+        Ok(())
     }
 
     fn rotate(&mut self, txn: &mut RwTransaction) -> Result<bool, anyhow::Error> {
