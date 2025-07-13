@@ -41,7 +41,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lmdb-kv"
+name = "lmdb-queue"
 version = "0.1.0"
 dependencies = [
  "anyhow",
