@@ -17,7 +17,7 @@ impl Env {
         Environment::new()
             .set_map_size(map_size.unwrap_or(256 * 1024 * 1024))
             .set_max_dbs(max_topics.unwrap_or(256))
-            .set_flags(EnvironmentFlags::NO_SYNC | EnvironmentFlags::NO_SUB_DIR)
+            .set_flags(EnvironmentFlags::NO_SYNC | EnvironmentFlags::NO_TLS | EnvironmentFlags::NO_SUB_DIR)
             .open(root.as_ref())
             .map(|lmdb_env| Env { lmdb_env, root: root.as_ref().to_str().unwrap().to_string() })
     }
