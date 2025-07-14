@@ -1,5 +1,5 @@
 use lmdb::{Cursor, Database, DatabaseFlags, Error, RwTransaction, Transaction, WriteFlags};
-use lmdb_sys::MDB_LAST;
+use lmdb_sys::{MDB_LAST, MDB_SET_RANGE};
 use super::env::Env;
 
 use super::reader::{Reader, Item};
@@ -33,6 +33,19 @@ pub trait Topic {
 
         let head_offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
         Ok(total - head_offset)
+    }
+
+    fn inc(&self, txn: &mut RwTransaction, key: &[u8], delta: u64) -> Result<(), Error> {
+        let mut cur = txn.open_rw_cursor(self.get_db())?;
+        let (_, old) = cur.get(Some(&key), None, MDB_SET_RANGE)?;
+        let old_val = slice_to_u64(old)?;
+        cur.put(&key, &u64_to_bytes(old_val + delta), WriteFlags::CURRENT)
+    }
+
+    fn replace(&self, txn: &mut RwTransaction, key: &[u8], value: u64) -> Result<(), Error> {
+        let mut cur = txn.open_rw_cursor(self.get_db())?;
+        cur.get(Some(&key), None, MDB_SET_RANGE)?;
+        cur.put(&key, &u64_to_bytes(value), WriteFlags::CURRENT)
     }
 
     fn get_tail<TXN>(db: Database, txn: &TXN) -> Result<(u64, u64), Error>
@@ -94,15 +107,14 @@ impl<'env> Producer<'env> {
     where B: AsRef<[&'a [u8]]>
     {
         let mut txn = self.env.transaction_rw()?;
-        let (mut tail_file, mut count) = Self::get_tail(self.db, &txn)?;
+        let (mut tail_file, _) = Self::get_tail(self.db, &txn)?;
         if self.writer.file_size()? > self.chunk_size {
             self.writer.rotate()?;
             tail_file += 1;
-            count = 0;
             txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(0), WriteFlags::empty())?;
         }
         self.writer.put_batch(messages)?;
-        txn.put(self.db, &u64_to_bytes(tail_file), &u64_to_bytes(count + messages.as_ref().len() as u64), WriteFlags::empty())?;
+        self.inc(&mut txn, &u64_to_bytes(tail_file), messages.as_ref().len() as u64)?;
         txn.commit()?;
         Ok(())
     }
@@ -166,7 +178,7 @@ impl <'env> Comsumer<'env> {
             }
         }
 
-        self.bump_offset(&mut txn, delta)?;
+        self.inc(&mut txn, &KEY_COMSUMER_OFFSET, delta)?;
         txn.commit()?;
         Ok(items)
     }
@@ -177,14 +189,14 @@ impl <'env> Comsumer<'env> {
 
         match self.reader.read() {
             Ok(item) => {
-                self.bump_offset(&mut txn, 1)?;
+                self.inc(&mut txn, &KEY_COMSUMER_OFFSET, 1)?;
                 txn.commit()?;
                 return Ok(Some(item));
             },
             Err(_) => {
                 if self.rotate(&mut txn)? {
                     let item = self.reader.read()?;
-                    self.bump_offset(&mut txn, 1)?;
+                    self.inc(&mut txn, &KEY_COMSUMER_OFFSET, 1)?;
                     txn.commit()?;
                     return Ok(Some(item));
                 } else {
@@ -212,17 +224,11 @@ impl <'env> Comsumer<'env> {
         if tail > head {
             self.reader.rotate()?;
             txn.del(self.db, &u64_to_bytes(head), None)?;
-            txn.put(self.db, &KEY_COMSUMER_FILE, &u64_to_bytes(head + 1), WriteFlags::empty())?;
-            txn.put(self.db, &KEY_COMSUMER_OFFSET, &u64_to_bytes(0), WriteFlags::empty())?;
+            self.replace(txn, &KEY_COMSUMER_FILE, head + 1)?;
+            self.replace(txn, &KEY_COMSUMER_OFFSET, 0)?;
             Ok(true)
         } else {
             Ok(false)
         }
-    }
-
-    fn bump_offset(&self, txn: &mut RwTransaction, delta: u64) -> Result<(), Error> {
-        let old_offset = Self::get_value(self.db, txn, &KEY_COMSUMER_OFFSET)?;
-        txn.put(self.db, &KEY_COMSUMER_OFFSET, &u64_to_bytes(old_offset + delta), WriteFlags::empty())?;
-        Ok(())
     }
 }
