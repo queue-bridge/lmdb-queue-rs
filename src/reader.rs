@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use std::{
     fs::{File, OpenOptions},
-    io::{Read},
+    io::{Read, Seek, SeekFrom},
     time::{SystemTime, UNIX_EPOCH}
 };
 
@@ -9,6 +9,7 @@ pub struct Reader {
     fd: File,
     prefix: String,
     file_num: u64,
+    bytes_read: u64,
 }
 
 pub struct Item {
@@ -24,7 +25,7 @@ impl Reader {
             .read(true)
             .open(path)?;
 
-        Ok(Self { fd, prefix, file_num })
+        Ok(Self { fd, prefix, file_num, bytes_read: 0 })
     }
 
     pub fn rotate(&mut self) -> Result<()> {
@@ -32,6 +33,7 @@ impl Reader {
         std::fs::remove_file(old_path)?;
 
         self.file_num = self.file_num + 1;
+        self.bytes_read = 0;
         let path = format!("{}-{:016x}", self.prefix, self.file_num);
         self.fd = OpenOptions::new()
             .read(true)
@@ -58,7 +60,18 @@ impl Reader {
 
         let mut data = vec![0; data_len as usize];
         self.fd.read_exact(&mut data)?;
+        self.bytes_read += data_len as u64 + 12;
         Ok(Item { ts: ts, data })
+    }
+
+    pub fn get_bytes_read(&self) -> u64 {
+        self.bytes_read
+    }
+
+    pub fn set_bytes_read(&self, bytes_read: u64) -> Result<()> {
+        let mut fd = &self.fd;
+        fd.seek(SeekFrom::Start(bytes_read))?;
+        Ok(())
     }
 }
 

@@ -7,6 +7,7 @@ use super::writer::Writer;
 
 pub static KEY_COMSUMER_FILE: [u8; 1] = [0];
 pub static KEY_COMSUMER_OFFSET: [u8; 2] = [0, 0];
+pub static KEY_COMSUMER_BYTES_READ: [u8; 3] = [0, 0, 0];
 
 pub fn slice_to_u64(slice: &[u8]) -> Result<u64, Error> {
     let arr: [u8; 8] = slice.try_into().map_err(|_| Error::Corrupted)?;
@@ -92,6 +93,7 @@ impl<'env> Producer<'env> {
         let zero = &u64_to_bytes(0);
         if let Ok(_) = txn.put(db, &KEY_COMSUMER_FILE, zero, WriteFlags::NO_OVERWRITE) {
             txn.put(db, &KEY_COMSUMER_OFFSET, zero, WriteFlags::NO_OVERWRITE)?;
+            txn.put(db, &KEY_COMSUMER_BYTES_READ, zero, WriteFlags::NO_OVERWRITE)?;
             txn.put(db, zero, zero, WriteFlags::NO_OVERWRITE)?;
         }
 
@@ -145,13 +147,14 @@ impl <'env> Comsumer<'env> {
     pub fn new(env: &'env Env, name: &str, chunks_to_keep: Option<u64>) -> Result<Self, anyhow::Error> {
         let txn = env.transaction_ro()?;
         let db = unsafe { txn.open_db(Some(name))? };
-        let offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
+        // let offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
+        let bytes_read = Self::get_value(db, &txn, &KEY_COMSUMER_BYTES_READ)?;
         let file_num = Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?;
         txn.commit()?;
 
-        let mut reader = Reader::new(&env.root, name, file_num)?;
-        for _ in 0..offset {
-            reader.read()?;
+        let reader = Reader::new(&env.root, name, file_num)?;
+        if bytes_read > 0 {
+            reader.set_bytes_read(bytes_read)?;
         }
 
         Ok(Comsumer { env, db, reader, chunks_to_keep: chunks_to_keep.unwrap_or(8) })
@@ -181,6 +184,7 @@ impl <'env> Comsumer<'env> {
         }
 
         self.inc(&mut txn, &KEY_COMSUMER_OFFSET, delta)?;
+        self.replace(&mut txn, &KEY_COMSUMER_BYTES_READ, self.reader.get_bytes_read())?;
         txn.commit()?;
         Ok(items)
     }
@@ -192,6 +196,7 @@ impl <'env> Comsumer<'env> {
         match self.reader.read() {
             Ok(item) => {
                 self.inc(&mut txn, &KEY_COMSUMER_OFFSET, 1)?;
+                self.replace(&mut txn, &KEY_COMSUMER_BYTES_READ, self.reader.get_bytes_read())?;
                 txn.commit()?;
                 return Ok(Some(item));
             },
@@ -199,6 +204,7 @@ impl <'env> Comsumer<'env> {
                 if self.rotate(&mut txn)? {
                     let item = self.reader.read()?;
                     self.inc(&mut txn, &KEY_COMSUMER_OFFSET, 1)?;
+                    self.replace(&mut txn, &KEY_COMSUMER_BYTES_READ, self.reader.get_bytes_read())?;
                     txn.commit()?;
                     return Ok(Some(item));
                 } else {
@@ -228,6 +234,7 @@ impl <'env> Comsumer<'env> {
             txn.del(self.db, &u64_to_bytes(head), None)?;
             self.replace(txn, &KEY_COMSUMER_FILE, head + 1)?;
             self.replace(txn, &KEY_COMSUMER_OFFSET, 0)?;
+            self.replace(txn, &KEY_COMSUMER_BYTES_READ, 0)?;
             Ok(true)
         } else {
             Ok(false)
