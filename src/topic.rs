@@ -143,11 +143,13 @@ impl <'env> Topic for Comsumer<'env> {
 
 impl <'env> Comsumer<'env> {
     pub fn new(env: &'env Env, name: &str, chunks_to_keep: Option<u64>) -> Result<Self, anyhow::Error> {
-        let db = env.lmdb_env.open_db(Some(name))?;
         let txn = env.transaction_ro()?;
-        let mut reader = Reader::new(&env.root, name, Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?)?;
-
+        let db = unsafe { txn.open_db(Some(name))? };
         let offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
+        let file_num = Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?;
+        txn.commit()?;
+
+        let mut reader = Reader::new(&env.root, name, file_num)?;
         for _ in 0..offset {
             reader.read()?;
         }
