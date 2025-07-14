@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "lmdb-queue"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "libc",
