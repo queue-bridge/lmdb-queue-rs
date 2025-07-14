@@ -160,8 +160,7 @@ impl <'env> Comsumer<'env> {
                         items.push(self.reader.read()?);
                         delta = 1;
                     } else {
-                        txn.commit()?;
-                        return Ok(items);
+                        break;
                     }
                 }
             }
