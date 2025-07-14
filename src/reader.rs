@@ -68,9 +68,9 @@ impl Reader {
         self.bytes_read
     }
 
-    pub fn set_bytes_read(&self, bytes_read: u64) -> Result<()> {
-        let mut fd = &self.fd;
-        fd.seek(SeekFrom::Start(bytes_read))?;
+    pub fn set_bytes_read(&mut self, bytes_read: u64) -> Result<()> {
+        self.fd.seek(SeekFrom::Start(bytes_read))?;
+        self.bytes_read = bytes_read;
         Ok(())
     }
 }

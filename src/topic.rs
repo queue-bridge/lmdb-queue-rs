@@ -152,7 +152,7 @@ impl <'env> Comsumer<'env> {
         let file_num = Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?;
         txn.commit()?;
 
-        let reader = Reader::new(&env.root, name, file_num)?;
+        let mut reader = Reader::new(&env.root, name, file_num)?;
         if bytes_read > 0 {
             reader.set_bytes_read(bytes_read)?;
         }
