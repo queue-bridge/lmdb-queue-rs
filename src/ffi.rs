@@ -195,3 +195,63 @@ pub unsafe extern "C" fn queue_producer_free(producer: *mut Producer) {
         unsafe { drop(Box::from_raw(producer)); }
     }
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_producer_push_batch(
+    producer: *mut Producer,
+    messages: *const *const u8,
+    lens: *const libc::size_t,
+    count: libc::size_t,
+) -> i32 {
+    if producer.is_null() || messages.is_null() || lens.is_null() {
+        return 1;
+    }
+
+    let producer = unsafe { &mut *producer };
+
+    let msg_ptrs = unsafe { std::slice::from_raw_parts(messages, count) };
+    let lens = unsafe { std::slice::from_raw_parts(lens, count) };
+
+    let mut views: Vec<&[u8]> = Vec::with_capacity(count);
+    for i in 0..count {
+        let ptr = msg_ptrs[i];
+        let len = lens[i];
+
+        if ptr.is_null() {
+            return 2; // invalid pointer
+        }
+
+        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+        views.push(slice);
+    }
+
+    match producer.push_back_batch(&views) {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("queue_env_new error: {:?}", e);
+            -1
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_producer_push(
+    producer: *mut Producer,
+    data: *const u8,
+    len: libc::size_t,
+) -> i32 {
+    if producer.is_null() || data.is_null() {
+        return 1; // Invalid pointer
+    }
+
+    let producer = unsafe { &mut *producer };
+    let msg = unsafe { std::slice::from_raw_parts(data, len) };
+
+    match producer.push_back(msg) {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("queue_env_new error: {:?}", e);
+            2
+        }
+    }
+}
