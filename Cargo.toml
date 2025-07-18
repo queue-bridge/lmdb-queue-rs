@@ -10,6 +10,10 @@ repository = "https://github.com/queue-bridge/lmdb-queue-rs.git"
 readme = "README.md"
 keywords = ["LMDB", "queue"]
 
+[lib]
+name = "lmdb_queue"
+crate-type = ["staticlib"]
+
 [dependencies]
 libc = "0.2"
 lmdb = "0.8"
