@@ -63,6 +63,108 @@ pub unsafe extern "C" fn queue_consumer_free(consumer: *mut Consumer) {
     }
 }
 
+#[repr(C)]
+pub struct CItem {
+    pub ts: u64,
+    pub data: *mut u8,
+    pub len: usize,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_consumer_pop(consumer: *mut Consumer) -> *mut CItem {
+    let consumer: &mut Consumer = unsafe { &mut *consumer };
+    match consumer.pop_front() {
+        Ok(Some(item)) => {
+            let len = item.data.len();
+            let data = item.data.into_boxed_slice();
+            Box::into_raw(Box::new(CItem {
+                ts: item.ts,
+                data: Box::into_raw(data) as *mut u8,
+                len
+            }))
+        }
+        Ok(None) => std::ptr::null_mut(),
+        Err(e) => {
+            eprintln!("queue_env_new error: {:?}", e);
+            std::ptr::null_mut()        
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_item_free(ptr: *mut CItem) {
+    if ptr.is_null() {
+        return;
+    }
+
+    let citem = unsafe { Box::from_raw(ptr) };
+    if !citem.data.is_null() && citem.len > 0 {
+        let _ = unsafe { Box::from_raw(std::slice::from_raw_parts_mut(citem.data, citem.len)) };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_consumer_pop_n(
+    consumer: *mut Consumer,
+    n: u64,
+    out_items: *mut *mut CItem,
+    out_count: *mut libc::size_t,
+) -> i32 {
+    if consumer.is_null() || out_items.is_null() || out_count.is_null() {
+        return 1; // Invalid argument
+    }
+
+    let consumer = unsafe { &mut *consumer };
+
+    match consumer.pop_front_n(n) {
+        Ok(items) => {
+            let count = items.len();
+            let mut citems: Vec<CItem> = Vec::with_capacity(count);
+
+            for item in items {
+                let len = item.data.len();
+                let data_ptr = Box::into_raw(item.data.into_boxed_slice()) as *mut u8;
+                citems.push(CItem {
+                    ts: item.ts,
+                    data: data_ptr,
+                    len,
+                });
+            }
+
+            let raw_ptr = citems.as_mut_ptr();
+            std::mem::forget(citems);
+            unsafe {
+                *out_items = raw_ptr;
+                *out_count = count;
+            }
+
+            0 // success
+        }
+        Err(e) => {
+            eprintln!("queue_env_new error: {:?}", e);
+            unsafe {
+                *out_items = std::ptr::null_mut();
+                *out_count = 0;
+            }
+            -1 // error code
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_items_free(items: *mut CItem, count: libc::size_t) {
+    if items.is_null() { return; }
+
+    let slice = unsafe { std::slice::from_raw_parts_mut(items, count) };
+    for item in slice {
+        if !item.data.is_null() && item.len > 0 {
+            let _ = unsafe { Box::from_raw(std::slice::from_raw_parts_mut(item.data, item.len)) };
+        }
+    }
+
+    let _ = unsafe { Vec::from_raw_parts(items, count, count) }; // 释放 CItem 本体
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn queue_producer_new(
     env: *mut Env,
