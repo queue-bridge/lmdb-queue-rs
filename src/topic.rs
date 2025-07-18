@@ -5,9 +5,9 @@ use super::env::Env;
 use super::reader::{Reader, Item};
 use super::writer::Writer;
 
-pub static KEY_COMSUMER_FILE: [u8; 1] = [0];
-pub static KEY_COMSUMER_OFFSET: [u8; 2] = [0, 0];
-pub static KEY_COMSUMER_BYTES_READ: [u8; 3] = [0, 0, 0];
+pub static KEY_CONSUMER_FILE: [u8; 1] = [0];
+pub static KEY_CONSUMER_OFFSET: [u8; 2] = [0, 0];
+pub static KEY_CONSUMER_BYTES_READ: [u8; 3] = [0, 0, 0];
 
 pub fn slice_to_u64(slice: &[u8]) -> Result<u64, Error> {
     let arr: [u8; 8] = slice.try_into().map_err(|_| Error::Corrupted)?;
@@ -25,14 +25,14 @@ pub trait Topic {
     fn lag(&self) -> Result<u64, Error> {
         let txn = self.get_env().transaction_ro()?;
         let db = self.get_db();
-        let head = Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?;
+        let head = Self::get_value(db, &txn, &KEY_CONSUMER_FILE)?;
         let (tail, _) = Self::get_tail(db, &txn)?;
         let total = (head..tail + 1)
             .map(|v| Self::get_value(db, &txn, &u64_to_bytes(v)).unwrap_or(0))
             .reduce(|acc, v| acc + v)
             .unwrap_or(0);
 
-        let head_offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
+        let head_offset = Self::get_value(db, &txn, &KEY_CONSUMER_OFFSET)?;
         Ok(total - head_offset)
     }
 
@@ -91,9 +91,9 @@ impl<'env> Producer<'env> {
         let db = unsafe { txn.create_db(Some(name), DatabaseFlags::empty())? };
 
         let zero = &u64_to_bytes(0);
-        if let Ok(_) = txn.put(db, &KEY_COMSUMER_FILE, zero, WriteFlags::NO_OVERWRITE) {
-            txn.put(db, &KEY_COMSUMER_OFFSET, zero, WriteFlags::NO_OVERWRITE)?;
-            txn.put(db, &KEY_COMSUMER_BYTES_READ, zero, WriteFlags::NO_OVERWRITE)?;
+        if let Ok(_) = txn.put(db, &KEY_CONSUMER_FILE, zero, WriteFlags::NO_OVERWRITE) {
+            txn.put(db, &KEY_CONSUMER_OFFSET, zero, WriteFlags::NO_OVERWRITE)?;
+            txn.put(db, &KEY_CONSUMER_BYTES_READ, zero, WriteFlags::NO_OVERWRITE)?;
             txn.put(db, zero, zero, WriteFlags::NO_OVERWRITE)?;
         }
 
@@ -126,14 +126,14 @@ impl<'env> Producer<'env> {
     }
 }
 
-pub struct Comsumer<'env> {
+pub struct Consumer<'env> {
     env: &'env Env,
     db: Database,
     reader: Reader,
     chunks_to_keep: u64,
 }
 
-impl <'env> Topic for Comsumer<'env> {
+impl <'env> Topic for Consumer<'env> {
     fn get_env(&self) -> &Env {
         self.env
     }
@@ -143,13 +143,13 @@ impl <'env> Topic for Comsumer<'env> {
     }    
 }
 
-impl <'env> Comsumer<'env> {
+impl <'env> Consumer<'env> {
     pub fn new(env: &'env Env, name: &str, chunks_to_keep: Option<u64>) -> Result<Self, anyhow::Error> {
         let txn = env.transaction_ro()?;
         let db = unsafe { txn.open_db(Some(name))? };
-        // let offset = Self::get_value(db, &txn, &KEY_COMSUMER_OFFSET)?;
-        let bytes_read = Self::get_value(db, &txn, &KEY_COMSUMER_BYTES_READ)?;
-        let file_num = Self::get_value(db, &txn, &KEY_COMSUMER_FILE)?;
+        // let offset = Self::get_value(db, &txn, &KEY_CONSUMER_OFFSET)?;
+        let bytes_read = Self::get_value(db, &txn, &KEY_CONSUMER_BYTES_READ)?;
+        let file_num = Self::get_value(db, &txn, &KEY_CONSUMER_FILE)?;
         txn.commit()?;
 
         let mut reader = Reader::new(&env.root, name, file_num)?;
@@ -157,7 +157,7 @@ impl <'env> Comsumer<'env> {
             reader.set_bytes_read(bytes_read)?;
         }
 
-        Ok(Comsumer { env, db, reader, chunks_to_keep: chunks_to_keep.unwrap_or(8) })
+        Ok(Consumer { env, db, reader, chunks_to_keep: chunks_to_keep.unwrap_or(8) })
     }
 
     pub fn pop_front_n(&mut self, n: u64) -> Result<Vec<Item>, anyhow::Error> {
@@ -183,8 +183,8 @@ impl <'env> Comsumer<'env> {
             }
         }
 
-        self.inc(&mut txn, &KEY_COMSUMER_OFFSET, delta)?;
-        self.replace(&mut txn, &KEY_COMSUMER_BYTES_READ, self.reader.get_bytes_read())?;
+        self.inc(&mut txn, &KEY_CONSUMER_OFFSET, delta)?;
+        self.replace(&mut txn, &KEY_CONSUMER_BYTES_READ, self.reader.get_bytes_read())?;
         txn.commit()?;
         Ok(items)
     }
@@ -195,16 +195,16 @@ impl <'env> Comsumer<'env> {
 
         match self.reader.read() {
             Ok(item) => {
-                self.inc(&mut txn, &KEY_COMSUMER_OFFSET, 1)?;
-                self.replace(&mut txn, &KEY_COMSUMER_BYTES_READ, self.reader.get_bytes_read())?;
+                self.inc(&mut txn, &KEY_CONSUMER_OFFSET, 1)?;
+                self.replace(&mut txn, &KEY_CONSUMER_BYTES_READ, self.reader.get_bytes_read())?;
                 txn.commit()?;
                 return Ok(Some(item));
             },
             Err(_) => {
                 if self.rotate(&mut txn)? {
                     let item = self.reader.read()?;
-                    self.inc(&mut txn, &KEY_COMSUMER_OFFSET, 1)?;
-                    self.replace(&mut txn, &KEY_COMSUMER_BYTES_READ, self.reader.get_bytes_read())?;
+                    self.inc(&mut txn, &KEY_CONSUMER_OFFSET, 1)?;
+                    self.replace(&mut txn, &KEY_CONSUMER_BYTES_READ, self.reader.get_bytes_read())?;
                     txn.commit()?;
                     return Ok(Some(item));
                 } else {
@@ -216,7 +216,7 @@ impl <'env> Comsumer<'env> {
     }
 
     fn check_chunks_to_keep(&mut self, txn: &mut RwTransaction) -> Result<(), anyhow::Error> {
-        let head = Self::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
+        let head = Self::get_value(self.db, txn, &KEY_CONSUMER_FILE)?;
         let (tail, _) = Self::get_tail(self.db, txn)?;
         let chunk_to_remove: i64 = tail as i64 + 1 - head as i64 - self.chunks_to_keep as i64;
         for _ in 0..chunk_to_remove {
@@ -227,14 +227,14 @@ impl <'env> Comsumer<'env> {
     }
 
     fn rotate(&mut self, txn: &mut RwTransaction) -> Result<bool, anyhow::Error> {
-        let head = Self::get_value(self.db, txn, &KEY_COMSUMER_FILE)?;
+        let head = Self::get_value(self.db, txn, &KEY_CONSUMER_FILE)?;
         let (tail, _) = Self::get_tail(self.db, txn)?;
         if tail > head {
             self.reader.rotate()?;
             txn.del(self.db, &u64_to_bytes(head), None)?;
-            self.replace(txn, &KEY_COMSUMER_FILE, head + 1)?;
-            self.replace(txn, &KEY_COMSUMER_OFFSET, 0)?;
-            self.replace(txn, &KEY_COMSUMER_BYTES_READ, 0)?;
+            self.replace(txn, &KEY_CONSUMER_FILE, head + 1)?;
+            self.replace(txn, &KEY_CONSUMER_OFFSET, 0)?;
+            self.replace(txn, &KEY_CONSUMER_BYTES_READ, 0)?;
             Ok(true)
         } else {
             Ok(false)

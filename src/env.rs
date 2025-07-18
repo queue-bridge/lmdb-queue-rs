@@ -2,7 +2,7 @@ use std::path::Path;
 use lmdb::{Environment, RoTransaction, RwTransaction, EnvironmentFlags, Error};
 use libc::{c_uint, size_t};
 
-use super::topic::{Comsumer, Producer};
+use super::topic::{Consumer, Producer};
 
 #[cfg(test)]
 use super::topic::Topic;
@@ -26,8 +26,8 @@ impl Env {
         Producer::new(&self, name, chunk_size)
     }
 
-    pub fn comsumer(&self, name: &str, chunks_to_keep: Option<u64>) -> Result<super::topic::Comsumer, anyhow::Error> {
-        Comsumer::new(&self, name, chunks_to_keep)
+    pub fn consumer(&self, name: &str, chunks_to_keep: Option<u64>) -> Result<super::topic::Consumer, anyhow::Error> {
+        Consumer::new(&self, name, chunks_to_keep)
     }
 
     pub fn transaction_ro(&self) -> Result<RoTransaction, Error> {
@@ -47,18 +47,18 @@ fn test_single() -> Result<(), anyhow::Error> {
         producer.push_back(&format!("{}", i).as_bytes())?;
     }
 
-    let mut comsumer = env.comsumer("test", None)?;
-    let lag = comsumer.lag()?;
+    let mut consumer = env.consumer("test", None)?;
+    let lag = consumer.lag()?;
     println!("Current lag is: {}", lag);
 
     let mut message_count = 0;
     loop {
-        let item = comsumer.pop_front()?;
+        let item = consumer.pop_front()?;
         if let Some(item) = item {
             message_count += 1;
             if message_count % (1024 * 100) == 0 {
                 println!("Got message: {}", String::from_utf8(item.data)?);
-                let cur_lag = comsumer.lag()?;
+                let cur_lag = consumer.lag()?;
                 assert!(lag == cur_lag + message_count as u64);
             }
         } else {
@@ -81,17 +81,17 @@ fn test_batch() -> Result<(), anyhow::Error> {
         producer.push_back_batch(&batch)?;
     }
 
-    let mut comsumer = env.comsumer("test", None)?;
-    let lag = comsumer.lag()?;
+    let mut consumer = env.consumer("test", None)?;
+    let lag = consumer.lag()?;
     println!("Current lag is: {}", lag);
     let mut message_count = 0;
     loop {
-        let items = comsumer.pop_front_n(10)?;
+        let items = consumer.pop_front_n(10)?;
         if items.len() > 0 {
             message_count += items.len();
             if message_count % (1024 * 100) == 0 {
                 println!("Got message: {}", String::from_utf8(items[0].data.clone())?);
-                let cur_lag = comsumer.lag()?;
+                let cur_lag = consumer.lag()?;
                 assert!(lag == cur_lag + message_count as u64);
             }
         } else {
