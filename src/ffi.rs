@@ -9,7 +9,7 @@ pub enum ErrorCode {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe  extern "C" fn queue_env_new(
+pub unsafe extern "C" fn queue_env_new(
     root: *const libc::c_char,
     max_topics: libc::c_uint,
     map_size: libc::size_t,
@@ -29,5 +29,12 @@ pub unsafe  extern "C" fn queue_env_new(
             eprintln!("queue_env_new error: {:?}", e);
             std::ptr::null_mut()
         }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queue_env_free(env: *mut Env) {
+    if !env.is_null() {
+        unsafe { drop(Box::from_raw(env)); }
     }
 }
