@@ -12,12 +12,14 @@ impl Writer {
         let prefix = format!("{}-{}", root, topic_name);
         let path = format!("{}-{:016x}", prefix, file_num);
 
-        let fd = OpenOptions::new()
+        let mut fd = OpenOptions::new()
             .write(true)
             .create(true)
             .append(true)
             .open(path)?;
 
+        fd.write_all(b"")?;
+        fd.sync_all()?;
         Ok(Self { fd, prefix, file_num })
     }
 
