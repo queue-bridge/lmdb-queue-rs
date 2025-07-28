@@ -78,8 +78,12 @@ impl<'env> Producer<'env> {
     {
         let mut txn = self.env.write_txn()?;
         let (mut tail_file, mut offset) = self.producer_db.iter(&txn)?.last().transpose()?.unwrap();
+        if tail_file > self.writer.get_file_num() {
+            self.writer.rotate(Some(tail_file))?;
+        }
+
         if self.writer.file_size()? > self.chunk_size {
-            self.writer.rotate()?;
+            self.writer.rotate(None)?;
             tail_file += 1;
             offset = 0;
             self.producer_db.put(&mut txn, &tail_file, &0)?;

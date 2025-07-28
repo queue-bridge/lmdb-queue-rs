@@ -23,8 +23,12 @@ impl Writer {
         Ok(Self { fd, prefix, file_num })
     }
 
-    pub fn rotate(&mut self) -> Result<()> {
-        self.file_num = self.file_num + 1;
+    pub fn get_file_num(&self) -> u64 {
+        self.file_num
+    }
+
+    pub fn rotate(&mut self, file_num: Option<u64>) -> Result<()> {
+        self.file_num = file_num.unwrap_or(self.file_num + 1);
         let path = format!("{}-{:016x}", self.prefix, self.file_num);
         self.fd = OpenOptions::new()
             .write(true)
@@ -75,7 +79,7 @@ fn test_put_batch() -> Result<()> {
 
         let batch: Vec<&[u8]> = messages.iter().map(|v| v.as_slice()).collect();
         if i == 1024 * 128 {
-            writer.rotate()?;
+            writer.rotate(None)?;
         }
         writer.put_batch(&batch)?;
     }
