@@ -16,8 +16,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 libc = "0.2"
-lmdb = "0.8"
-lmdb-sys = "0.8"
+heed3 = "0.22"
 anyhow = "1"
 
 [features]
