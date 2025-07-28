@@ -201,6 +201,15 @@ impl <'env> Consumer<'env> {
 
     fn check_chunks_to_keep(&mut self, txn: &mut RwTxn) -> Result<(), Box<dyn Error>> {
         let head = self.consumer_db.get(&txn, &KEY_CONSUMER_FILE)?.unwrap();
+        if head != self.reader.get_file_num() {
+            self.reader.rotate(Some(head))?;
+        }
+
+        let bytes_read = self.consumer_db.get(&txn, &KEY_CONSUMER_BYTES_READ)?.unwrap();
+        if bytes_read != self.reader.get_bytes_read() {
+            self.reader.set_bytes_read(bytes_read)?;
+        }
+
         let (tail, _) = self.producer_db.iter(&txn)?.last().transpose()?.unwrap();
         let chunk_to_remove: i64 = tail as i64 + 1 - head as i64 - self.chunks_to_keep as i64;
         for _ in 0..chunk_to_remove {
@@ -214,7 +223,7 @@ impl <'env> Consumer<'env> {
         let head = self.consumer_db.get(&txn, &KEY_CONSUMER_FILE)?.unwrap();
         let (tail, _) = self.producer_db.iter(&txn)?.last().transpose()?.unwrap();
         if tail > head {
-            self.reader.rotate()?;
+            self.reader.rotate(None)?;
             self.producer_db.delete(txn, &head)?;
             self.consumer_db.put(txn, &KEY_CONSUMER_FILE, &(head + 1))?;
             self.consumer_db.put(txn, &KEY_CONSUMER_OFFSET, &0)?;

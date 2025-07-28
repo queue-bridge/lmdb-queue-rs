@@ -28,11 +28,15 @@ impl Reader {
         Ok(Self { fd, prefix, file_num, bytes_read: 0 })
     }
 
-    pub fn rotate(&mut self) -> Result<()> {
-        let old_path = format!("{}-{:016x}", self.prefix, self.file_num);
-        std::fs::remove_file(old_path)?;
+    pub fn get_file_num(&self) -> u64 {
+        self.file_num
+    }
 
-        self.file_num = self.file_num + 1;
+    pub fn rotate(&mut self, file_num: Option<u64>) -> Result<()> {
+        let old_path = format!("{}-{:016x}", self.prefix, self.file_num);
+        std::fs::remove_file(old_path).ok();
+
+        self.file_num = file_num.unwrap_or(self.file_num + 1);
         self.bytes_read = 0;
         let path = format!("{}-{:016x}", self.prefix, self.file_num);
         self.fd = OpenOptions::new()
@@ -91,7 +95,7 @@ fn test_reader() -> Result<()> {
             }
             Err(_) => {
                 println!("Read {} messages.", total);
-                if let Err(_) = reader.rotate() {
+                if let Err(_) = reader.rotate(None) {
                     break;
                 }
             }
