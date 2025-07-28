@@ -31,7 +31,7 @@ impl Env {
     pub fn db<K, V>(&self, wtxn: &mut RwTxn, name: &str) -> Result<Database<K, V>, Box<dyn Error>>
     where K: 'static, V: 'static
     {
-        Ok(self.lmdb_env.open_database::<K, V>(wtxn, Some(name))?.unwrap())
+        Ok(self.lmdb_env.create_database::<K, V>(wtxn, Some(name))?)
     }
 
     pub fn producer(&self, name: &str, chunk_size: Option<u64>) -> Result<Producer, Box<dyn Error>> {
